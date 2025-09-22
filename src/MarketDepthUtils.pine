@@ -1,0 +1,282 @@
+//@version=5
+// Библиотека утилит для анализа глубины стакана (Market Depth)
+// Дополнительные функции для работы с биржевым стаканом
+
+// ============================================================================
+// КОНСТАНТЫ ДЛЯ АНАЛИЗА ГЛУБИНЫ
+// ============================================================================
+
+// Стандартные режимы глубины
+DEPTH_MODE_SHALLOW = "SHALLOW"     // 5/15 - для быстрых сделок
+DEPTH_MODE_NORMAL = "NORMAL"       // 8/30 - стандартный анализ
+DEPTH_MODE_DEEP = "DEEP"           // 15/25 - глубокий анализ
+DEPTH_MODE_PROFESSIONAL = "PRO"    // 20/40 - профессиональный анализ
+
+// Пороги для определения типов ликвидности
+LIQUIDITY_THRESHOLD_LOW = 0.5      // Низкая ликвидность
+LIQUIDITY_THRESHOLD_NORMAL = 2.0   // Нормальная ликвидность
+LIQUIDITY_THRESHOLD_HIGH = 5.0     // Высокая ликвидность
+
+// Пороги дисбаланса
+IMBALANCE_THRESHOLD_WEAK = 1.2     // Слабый дисбаланс
+IMBALANCE_THRESHOLD_STRONG = 2.0   // Сильный дисбаланс
+IMBALANCE_THRESHOLD_EXTREME = 5.0  // Экстремальный дисбаланс
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ РАБОТЫ С ГЛУБИНОЙ СТАКАНА
+// ============================================================================
+
+// Функция для получения настроек глубины по режиму
+f_get_depth_config(mode) =>
+    switch mode
+        DEPTH_MODE_SHALLOW => [5, 15, 0.0001, 500000]
+        DEPTH_MODE_NORMAL => [8, 30, 0.0001, 1000000]
+        DEPTH_MODE_DEEP => [15, 25, 0.0001, 2000000]
+        DEPTH_MODE_PROFESSIONAL => [20, 40, 0.0001, 5000000]
+        => [8, 30, 0.0001, 1000000]  // По умолчанию
+
+// Функция для расчета реалистичных объемов в стакане
+f_calculate_realistic_volume(base_volume, level, total_levels, volatility) =>
+    // Уменьшение объема с глубиной (реалистичная модель)
+    depth_factor = 1.0 - (level / total_levels) * 0.8
+    
+    // Влияние волатильности на объем
+    volatility_factor = 1.0 + (volatility - 1.0) * 0.3
+    
+    // Случайные колебания (имитация реального стакана)
+    random_factor = math.random(0.3, 1.7)
+    
+    final_volume = base_volume * depth_factor * volatility_factor * random_factor
+    math.max(final_volume, base_volume * 0.1)  // Минимальный объем
+
+// Функция для расчета ценовых уровней с учетом спреда
+f_calculate_price_levels(base_price, tick_size, levels, is_bid) =>
+    var array<float> prices = array.new<float>()
+    array.clear(prices)
+    
+    for i = 0 to levels - 1
+        price_offset = is_bid ? -i * tick_size : i * tick_size
+        level_price = base_price + price_offset
+        array.push(prices, level_price)
+    
+    prices
+
+// Функция для расчета объемов на каждом уровне
+f_calculate_volume_levels(base_volume, levels, volatility) =>
+    var array<float> volumes = array.new<float>()
+    array.clear(volumes)
+    
+    for i = 0 to levels - 1
+        level_volume = f_calculate_realistic_volume(base_volume, i, levels, volatility)
+        array.push(volumes, level_volume)
+    
+    volumes
+
+// ============================================================================
+// ФУНКЦИИ АНАЛИЗА ЛИКВИДНОСТИ
+// ============================================================================
+
+// Функция для определения типа ликвидности
+f_get_liquidity_type(total_volume, threshold_multiplier = 1.0) =>
+    adjusted_threshold = LIQUIDITY_THRESHOLD_HIGH * threshold_multiplier
+    
+    if total_volume > adjusted_threshold * 1000000
+        "VERY_HIGH"
+    else if total_volume > LIQUIDITY_THRESHOLD_HIGH * 1000000
+        "HIGH"
+    else if total_volume > LIQUIDITY_THRESHOLD_NORMAL * 1000000
+        "NORMAL"
+    else if total_volume > LIQUIDITY_THRESHOLD_LOW * 1000000
+        "LOW"
+    else
+        "VERY_LOW"
+
+// Функция для расчета индекса ликвидности
+f_calculate_liquidity_index(bid_volumes, ask_volumes) =>
+    bid_total = f_calculate_total_volume(bid_volumes)
+    ask_total = f_calculate_total_volume(ask_volumes)
+    
+    // Индекс от 0 до 100
+    total_liquidity = bid_total + ask_total
+    max_expected = 10000000  // Максимальный ожидаемый объем
+    
+    index = math.min((total_liquidity / max_expected) * 100, 100)
+    index
+
+// Функция для поиска крупных заявок (стен)
+f_find_large_orders(volumes, prices, wall_threshold) =>
+    var array<float> walls = array.new<float>()
+    array.clear(walls)
+    
+    for i = 0 to array.size(volumes) - 1
+        volume = array.get(volumes, i)
+        price = array.get(prices, i)
+        
+        if volume > wall_threshold
+            array.push(walls, price)
+    
+    walls
+
+// ============================================================================
+// ФУНКЦИИ АНАЛИЗА ДИСБАЛАНСА
+// ============================================================================
+
+// Функция для классификации дисбаланса
+f_classify_imbalance(imbalance_ratio) =>
+    if imbalance_ratio > IMBALANCE_THRESHOLD_EXTREME
+        "EXTREME_BID"
+    else if imbalance_ratio > IMBALANCE_THRESHOLD_STRONG
+        "STRONG_BID"
+    else if imbalance_ratio > IMBALANCE_THRESHOLD_WEAK
+        "WEAK_BID"
+    else if imbalance_ratio > (1 / IMBALANCE_THRESHOLD_WEAK)
+        "BALANCED"
+    else if imbalance_ratio > (1 / IMBALANCE_THRESHOLD_STRONG)
+        "WEAK_ASK"
+    else if imbalance_ratio > (1 / IMBALANCE_THRESHOLD_EXTREME)
+        "STRONG_ASK"
+    else
+        "EXTREME_ASK"
+
+// Функция для расчета силы дисбаланса
+f_calculate_imbalance_strength(imbalance_ratio) =>
+    if imbalance_ratio > 1
+        strength = (imbalance_ratio - 1) * 100
+    else
+        strength = ((1 / imbalance_ratio) - 1) * 100
+    
+    math.min(strength, 1000)  // Ограничиваем максимальную силу
+
+// Функция для предсказания направления движения на основе дисбаланса
+f_predict_price_direction(imbalance_ratio, imbalance_strength, liquidity_index) =>
+    // Учитываем не только дисбаланс, но и ликвидность
+    if liquidity_index < 20
+        "UNCLEAR"  // Низкая ликвидность - неопределенность
+    else if imbalance_ratio > IMBALANCE_THRESHOLD_STRONG and imbalance_strength > 50
+        "BULLISH"
+    else if imbalance_ratio < (1 / IMBALANCE_THRESHOLD_STRONG) and imbalance_strength > 50
+        "BEARISH"
+    else if imbalance_strength < 20
+        "NEUTRAL"
+    else
+        "UNCLEAR"
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ ОПТИМИЗАЦИИ ТОРГОВЫХ РЕШЕНИЙ
+// ============================================================================
+
+// Функция для расчета оптимальной цены входа
+f_calculate_optimal_entry_price(bid_prices, ask_prices, bid_volumes, ask_volumes, target_volume) =>
+    // Ищем уровень, где можно купить/продать нужный объем с минимальным влиянием на цену
+    var float optimal_bid = na
+    var float optimal_ask = na
+    
+    // Для покупки (ask)
+    cumulative_volume = 0.0
+    for i = 0 to array.size(ask_volumes) - 1
+        cumulative_volume += array.get(ask_volumes, i)
+        if cumulative_volume >= target_volume and na(optimal_ask)
+            optimal_ask := array.get(ask_prices, i)
+    
+    // Для продажи (bid)
+    cumulative_volume := 0.0
+    for i = 0 to array.size(bid_volumes) - 1
+        cumulative_volume += array.get(bid_volumes, i)
+        if cumulative_volume >= target_volume and na(optimal_bid)
+            optimal_bid := array.get(bid_prices, i)
+    
+    [optimal_bid, optimal_ask]
+
+// Функция для расчета влияния на рынок (market impact)
+f_calculate_market_impact(volume, total_liquidity, price_levels, volumes) =>
+    if total_liquidity == 0
+        0.0
+    else
+        // Процент от общей ликвидности
+        liquidity_percentage = (volume / total_liquidity) * 100
+        
+        // Оценка влияния на цену (упрощенная модель)
+        impact_percentage = math.pow(liquidity_percentage, 0.5) * 0.1
+        
+        math.min(impact_percentage, 5.0)  // Максимальное влияние 5%
+
+// Функция для определения времени исполнения заявки
+f_estimate_execution_time(liquidity_index, order_size, average_order_size) =>
+    // Базовое время в секундах
+    base_time = 1.0
+    
+    // Множитель на основе ликвидности
+    liquidity_multiplier = math.max(1.0, 100 - liquidity_index) / 10
+    
+    // Множитель на основе размера заявки
+    size_multiplier = order_size / average_order_size
+    
+    estimated_time = base_time * liquidity_multiplier * size_multiplier
+    math.max(estimated_time, 0.1)  // Минимум 0.1 секунды
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ ВИЗУАЛИЗАЦИИ
+// ============================================================================
+
+// Функция для получения цвета на основе типа дисбаланса
+f_get_imbalance_color(imbalance_type) =>
+    switch imbalance_type
+        "EXTREME_BID" => color.new(color.green, 0)
+        "STRONG_BID" => color.new(color.green, 30)
+        "WEAK_BID" => color.new(color.green, 60)
+        "BALANCED" => color.gray
+        "WEAK_ASK" => color.new(color.red, 60)
+        "STRONG_ASK" => color.new(color.red, 30)
+        "EXTREME_ASK" => color.new(color.red, 0)
+        => color.gray
+
+// Функция для получения цвета ликвидности
+f_get_liquidity_color(liquidity_type) =>
+    switch liquidity_type
+        "VERY_HIGH" => color.new(color.blue, 0)
+        "HIGH" => color.new(color.blue, 30)
+        "NORMAL" => color.new(color.blue, 60)
+        "LOW" => color.new(color.orange, 30)
+        "VERY_LOW" => color.new(color.red, 30)
+        => color.gray
+
+// Функция для форматирования времени исполнения
+f_format_execution_time(seconds) =>
+    if seconds < 60
+        str.format("{0,number,#.#}s", seconds)
+    else if seconds < 3600
+        str.format("{0,number,#.#}m", seconds / 60)
+    else
+        str.format("{0,number,#.#}h", seconds / 3600)
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ СТАТИСТИЧЕСКОГО АНАЛИЗА
+// ============================================================================
+
+// Функция для расчета волатильности стакана
+f_calculate_depth_volatility(volumes, length = 20) =>
+    if array.size(volumes) == 0
+        0.0
+    else
+        total_volume = f_calculate_total_volume(volumes)
+        avg_volume = total_volume / array.size(volumes)
+        
+        variance = 0.0
+        for i = 0 to array.size(volumes) - 1
+            volume = array.get(volumes, i)
+            variance += math.pow(volume - avg_volume, 2)
+        
+        variance /= array.size(volumes)
+        math.sqrt(variance) / avg_volume * 100  // CV в процентах
+
+// Функция для расчета корреляции между bid и ask объемами
+f_calculate_bid_ask_correlation(bid_volumes, ask_volumes, length = 20) =>
+    if array.size(bid_volumes) == 0 or array.size(ask_volumes) == 0
+        0.0
+    else
+        bid_total = f_calculate_total_volume(bid_volumes)
+        ask_total = f_calculate_total_volume(ask_volumes)
+        
+        // Упрощенная корреляция на основе соотношения
+        correlation = math.min(bid_total, ask_total) / math.max(bid_total, ask_total)
+        correlation

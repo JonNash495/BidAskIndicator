@@ -1,0 +1,240 @@
+//@version=5
+indicator("Bid Ask Market Depth Analyzer", shorttitle="BidAskDepth", overlay=false)
+
+// ============================================================================
+// НАСТРОЙКИ АНАЛИЗА ГЛУБИНЫ СТАКАНА
+// ============================================================================
+
+// Основные настройки глубины
+group_depth = "Настройки глубины стакана"
+bid_levels = input.int(8, "Уровни Bid для анализа", minval=1, maxval=50, group=group_depth)
+ask_levels = input.int(30, "Уровни Ask для анализа", minval=1, maxval=50, group=group_depth)
+depth_mode = input.string("8/30", "Режим глубины", options=["5/15", "8/30", "10/20", "15/25", "Custom"], group=group_depth)
+
+// Настройки отображения
+group_display = "Отображение"
+show_depth_chart = input.bool(true, "Показать график глубины", group=group_display)
+show_volume_profile = input.bool(true, "Показать профиль объема", group=group_display)
+show_imbalance = input.bool(true, "Показать дисбаланс", group=group_display)
+show_liquidity_zones = input.bool(true, "Показать зоны ликвидности", group=group_display)
+
+// Цвета и стили
+group_style = "Стиль"
+bid_color = input.color(color.green, "Цвет Bid", group=group_style)
+ask_color = input.color(color.red, "Цвет Ask", group=group_style)
+imbalance_color = input.color(color.orange, "Цвет дисбаланса", group=group_style)
+liquidity_color = input.color(color.blue, "Цвет ликвидности", group=group_style)
+
+// Настройки анализа
+group_analysis = "Анализ"
+volume_threshold = input.float(1000.0, "Порог объема для зон", minval=100.0, group=group_analysis)
+imbalance_threshold = input.float(2.0, "Порог дисбаланса", minval=1.0, maxval=10.0, group=group_analysis)
+show_alerts = input.bool(true, "Включить алерты", group=group_analysis)
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ РАСЧЕТА ГЛУБИНЫ СТАКАНА
+// ============================================================================
+
+// Функция для получения настроек глубины
+f_get_depth_settings(mode) =>
+    switch mode
+        "5/15" => [5, 15]
+        "8/30" => [8, 30]
+        "10/20" => [10, 20]
+        "15/25" => [15, 25]
+        => [bid_levels, ask_levels]
+
+// Функция для расчета ценовых уровней (имитация стакана)
+f_calculate_depth_levels(price, levels, is_bid) =>
+    var array<float> depth_prices = array.new<float>()
+    var array<float> depth_volumes = array.new<float>()
+    
+    array.clear(depth_prices)
+    array.clear(depth_volumes)
+    
+    // Создаем имитацию уровней стакана
+    tick_size = 0.0001  // Размер тика для валютных пар
+    volume_base = 1000000  // Базовый объем
+    
+    for i = 0 to levels - 1
+        level_price = is_bid ? price - (i * tick_size) : price + (i * tick_size)
+        level_volume = volume_base * (1 - i * 0.1) * math.random(0.5, 1.5)
+        
+        array.push(depth_prices, level_price)
+        array.push(depth_volumes, level_volume)
+    
+    [depth_prices, depth_volumes]
+
+// Функция для расчета общего объема на уровнях
+f_calculate_total_volume(volume_array) =>
+    total = 0.0
+    for i = 0 to array.size(volume_array) - 1
+        total += array.get(volume_array, i)
+    total
+
+// Функция для расчета дисбаланса
+f_calculate_imbalance(bid_volumes, ask_volumes) =>
+    bid_total = f_calculate_total_volume(bid_volumes)
+    ask_total = f_calculate_total_volume(ask_volumes)
+    
+    if ask_total > 0
+        imbalance = bid_total / ask_total
+    else
+        imbalance = 1.0
+    
+    imbalance
+
+// Функция для определения зон ликвидности
+f_find_liquidity_zones(prices, volumes, threshold) =>
+    var array<float> zones = array.new<float>()
+    array.clear(zones)
+    
+    for i = 0 to array.size(volumes) - 1
+        volume = array.get(volumes, i)
+        price = array.get(prices, i)
+        
+        if volume > threshold
+            array.push(zones, price)
+    
+    zones
+
+// ============================================================================
+// ОСНОВНЫЕ РАСЧЕТЫ
+// ============================================================================
+
+// Получение настроек глубины
+[depth_bid_levels, depth_ask_levels] = f_get_depth_settings(depth_mode)
+
+// Расчет текущих цен bid/ask
+current_price = close
+bid_price = current_price * 0.9995
+ask_price = current_price * 1.0005
+
+// Расчет уровней глубины
+[bid_prices, bid_volumes] = f_calculate_depth_levels(bid_price, depth_bid_levels, true)
+[ask_prices, ask_volumes] = f_calculate_depth_levels(ask_price, depth_ask_levels, false)
+
+// Расчет метрик
+bid_total_volume = f_calculate_total_volume(bid_volumes)
+ask_total_volume = f_calculate_total_volume(ask_volumes)
+volume_imbalance = f_calculate_imbalance(bid_volumes, ask_volumes)
+
+// Поиск зон ликвидности
+bid_liquidity_zones = f_find_liquidity_zones(bid_prices, bid_volumes, volume_threshold)
+ask_liquidity_zones = f_find_liquidity_zones(ask_prices, ask_volumes, volume_threshold)
+
+// ============================================================================
+// ОТОБРАЖЕНИЕ ГРАФИКОВ
+// ============================================================================
+
+// График объема по уровням (имитация)
+if show_depth_chart
+    // Отображаем агрегированные данные как пример
+    plot(bid_total_volume / 1000000, "Bid Volume (M)", color=bid_color, linewidth=2)
+    plot(ask_total_volume / 1000000, "Ask Volume (M)", color=ask_color, linewidth=2)
+
+// График дисбаланса
+if show_imbalance
+    imbalance_normalized = (volume_imbalance - 1) * 100
+    plot(imbalance_normalized, "Volume Imbalance %", color=imbalance_color, linewidth=2)
+    hline(0, "Balance Line", color=color.gray, linestyle=hline.style_dashed)
+
+// График профиля объема (упрощенный)
+if show_volume_profile
+    avg_volume = (bid_total_volume + ask_total_volume) / 2
+    plot(avg_volume / 1000000, "Avg Volume Profile (M)", color=liquidity_color, linewidth=1)
+
+// ============================================================================
+// ВИЗУАЛЬНЫЕ СИГНАЛЫ
+// ============================================================================
+
+// Сигналы дисбаланса
+strong_bid_imbalance = volume_imbalance > imbalance_threshold
+strong_ask_imbalance = volume_imbalance < (1 / imbalance_threshold)
+
+plotshape(strong_bid_imbalance, "Strong Bid", shape.triangleup, location.belowbar, color=color.green, size=size.small)
+plotshape(strong_ask_imbalance, "Strong Ask", shape.triangledown, location.abovebar, color=color.red, size=size.small)
+
+// Сигналы ликвидности
+high_liquidity = (bid_total_volume + ask_total_volume) > volume_threshold * 2
+plotshape(high_liquidity, "High Liquidity", shape.diamond, location.top, color=color.blue, size=size.tiny)
+
+// ============================================================================
+// ИНФОРМАЦИОННАЯ ТАБЛИЦА
+// ============================================================================
+
+if barstate.islast
+    var table depth_table = table.new(position.top_right, 2, 8, bgcolor=color.white, border_width=1)
+    
+    // Заголовок
+    table.cell(depth_table, 0, 0, "Market Depth Analysis", text_color=color.black, text_size=size.normal, bgcolor=color.gray)
+    table.cell(depth_table, 1, 0, "Value", text_color=color.black, text_size=size.normal, bgcolor=color.gray)
+    
+    // Основные данные
+    table.cell(depth_table, 0, 1, "Depth Mode:", text_color=color.black, text_size=size.small)
+    table.cell(depth_table, 1, 1, depth_mode, text_color=color.blue, text_size=size.small)
+    
+    table.cell(depth_table, 0, 2, "Bid Levels:", text_color=color.black, text_size=size.small)
+    table.cell(depth_table, 1, 2, str.tostring(depth_bid_levels), text_color=bid_color, text_size=size.small)
+    
+    table.cell(depth_table, 0, 3, "Ask Levels:", text_color=color.black, text_size=size.small)
+    table.cell(depth_table, 1, 3, str.tostring(depth_ask_levels), text_color=ask_color, text_size=size.small)
+    
+    table.cell(depth_table, 0, 4, "Bid Volume:", text_color=color.black, text_size=size.small)
+    table.cell(depth_table, 1, 4, str.format("{0,number,#.#}M", bid_total_volume / 1000000), text_color=bid_color, text_size=size.small)
+    
+    table.cell(depth_table, 0, 5, "Ask Volume:", text_color=color.black, text_size=size.small)
+    table.cell(depth_table, 1, 5, str.format("{0,number,#.#}M", ask_total_volume / 1000000), text_color=ask_color, text_size=size.small)
+    
+    table.cell(depth_table, 0, 6, "Imbalance:", text_color=color.black, text_size=size.small)
+    imbalance_text = str.format("{0,number,#.##}x", volume_imbalance)
+    imbalance_color_text = volume_imbalance > 1.5 ? color.green : volume_imbalance < 0.67 ? color.red : color.gray
+    table.cell(depth_table, 1, 6, imbalance_text, text_color=imbalance_color_text, text_size=size.small)
+    
+    table.cell(depth_table, 0, 7, "Status:", text_color=color.black, text_size=size.small)
+    status_text = strong_bid_imbalance ? "BID HEAVY" : strong_ask_imbalance ? "ASK HEAVY" : "BALANCED"
+    status_color = strong_bid_imbalance ? color.green : strong_ask_imbalance ? color.red : color.gray
+    table.cell(depth_table, 1, 7, status_text, text_color=status_color, text_size=size.small)
+
+// ============================================================================
+// АЛЕРТЫ
+// ============================================================================
+
+if show_alerts
+    // Алерт на сильный дисбаланс в пользу покупки
+    if strong_bid_imbalance
+        alert("Сильный дисбаланс в пользу покупки! Imbalance: " + str.format("{0,number,#.##}x", volume_imbalance), alert.freq_once_per_bar)
+    
+    // Алерт на сильный дисбаланс в пользу продажи
+    if strong_ask_imbalance
+        alert("Сильный дисбаланс в пользу продажи! Imbalance: " + str.format("{0,number,#.##}x", volume_imbalance), alert.freq_once_per_bar)
+    
+    // Алерт на высокую ликвидность
+    if high_liquidity
+        alert("Высокая ликвидность: " + str.format("{0,number,#.#}M", (bid_total_volume + ask_total_volume) / 1000000), alert.freq_once_per_bar)
+
+// ============================================================================
+// ДОПОЛНИТЕЛЬНЫЕ ИНДИКАТОРЫ
+// ============================================================================
+
+// RSI дисбаланса
+imbalance_rsi = ta.rsi(volume_imbalance, 14)
+plot(imbalance_rsi, "Imbalance RSI", color=color.purple, display=display.data_window)
+
+// Скользящее среднее дисбаланса
+imbalance_ma = ta.sma(volume_imbalance, 20)
+plot(imbalance_ma, "Imbalance MA", color=color.orange, linewidth=1)
+
+// ============================================================================
+// НАСТРОЙКИ ОТОБРАЖЕНИЯ
+// ============================================================================
+
+// Горизонтальные линии
+hline(1, "Perfect Balance", color=color.gray, linestyle=hline.style_dotted)
+hline(imbalance_threshold, "Strong Bid Threshold", color=color.green, linestyle=hline.style_dashed)
+hline(1/imbalance_threshold, "Strong Ask Threshold", color=color.red, linestyle=hline.style_dashed)
+
+// Фон для дисбаланса
+bgcolor(strong_bid_imbalance ? color.new(color.green, 95) : 
+         strong_ask_imbalance ? color.new(color.red, 95) : na, 
+         title="Imbalance Background")

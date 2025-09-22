@@ -1,0 +1,220 @@
+//@version=5
+indicator("Market Depth Analysis Example", shorttitle="Depth Example", overlay=false)
+
+// ============================================================================
+// ПРИМЕР ИСПОЛЬЗОВАНИЯ АНАЛИЗА ГЛУБИНЫ СТАКАНА
+// ============================================================================
+
+// Подключение библиотек
+// include BidAskUtils.pine
+// include MarketDepthUtils.pine
+
+// Настройки
+group_main = "Основные настройки"
+depth_mode = input.string("8/30", "Режим глубины", options=["5/15", "8/30", "10/20", "15/25"], group=group_main)
+analysis_type = input.string("STANDARD", "Тип анализа", options=["STANDARD", "PROFESSIONAL", "SCALPING"], group=group_main)
+
+group_display = "Отображение"
+show_liquidity_analysis = input.bool(true, "Показать анализ ликвидности", group=group_display)
+show_imbalance_signals = input.bool(true, "Показать сигналы дисбаланса", group=group_display)
+show_trading_signals = input.bool(true, "Показать торговые сигналы", group=group_display)
+
+// ============================================================================
+// РАСЧЕТ ОСНОВНЫХ ПОКАЗАТЕЛЕЙ
+// ============================================================================
+
+// Получение настроек глубины
+[depth_bid, depth_ask, tick_size, base_volume] = f_get_depth_config(depth_mode)
+
+// Расчет волатильности для реалистичных объемов
+volatility = f_get_volatility_level(20)
+volatility_factor = volatility == "HIGH" ? 1.5 : volatility == "LOW" ? 0.5 : 1.0
+
+// Расчет цен и объемов
+current_price = close
+bid_price = f_get_bid_price(current_price, volatility)
+ask_price = f_get_ask_price(current_price, volatility)
+
+// Создание стакана
+bid_prices = f_calculate_price_levels(bid_price, tick_size, depth_bid, true)
+ask_prices = f_calculate_price_levels(ask_price, tick_size, depth_ask, false)
+bid_volumes = f_calculate_volume_levels(base_volume, depth_bid, volatility_factor)
+ask_volumes = f_calculate_volume_levels(base_volume, depth_ask, volatility_factor)
+
+// ============================================================================
+// АНАЛИЗ ЛИКВИДНОСТИ
+// ============================================================================
+
+// Расчет метрик ликвидности
+bid_total_volume = f_calculate_total_volume(bid_volumes)
+ask_total_volume = f_calculate_total_volume(ask_volumes)
+total_liquidity = bid_total_volume + ask_total_volume
+
+liquidity_index = f_calculate_liquidity_index(bid_volumes, ask_volumes)
+liquidity_type = f_get_liquidity_type(total_liquidity)
+
+// Поиск крупных заявок
+wall_threshold = base_volume * 3  // Порог для определения "стен"
+bid_walls = f_find_large_orders(bid_volumes, bid_prices, wall_threshold)
+ask_walls = f_find_large_orders(ask_volumes, ask_prices, wall_threshold)
+
+// ============================================================================
+// АНАЛИЗ ДИСБАЛАНСА
+// ============================================================================
+
+// Расчет дисбаланса
+volume_imbalance = f_calculate_imbalance(bid_volumes, ask_volumes)
+imbalance_type = f_classify_imbalance(volume_imbalance)
+imbalance_strength = f_calculate_imbalance_strength(volume_imbalance)
+
+// Предсказание направления
+price_direction = f_predict_price_direction(volume_imbalance, imbalance_strength, liquidity_index)
+
+// ============================================================================
+// ТОРГОВЫЕ СИГНАЛЫ
+// ============================================================================
+
+// Оптимальные цены входа
+target_volume = base_volume * 0.5  // Целевой объем для анализа
+[optimal_bid, optimal_ask] = f_calculate_optimal_entry_price(bid_prices, ask_prices, bid_volumes, ask_volumes, target_volume)
+
+// Влияние на рынок
+market_impact = f_calculate_market_impact(target_volume, total_liquidity, ask_prices, ask_volumes)
+
+// Время исполнения
+average_order_size = base_volume * 0.3
+execution_time = f_estimate_execution_time(liquidity_index, target_volume, average_order_size)
+
+// ============================================================================
+// ОТОБРАЖЕНИЕ ГРАФИКОВ
+// ============================================================================
+
+// Основные графики
+if show_liquidity_analysis
+    plot(liquidity_index, "Liquidity Index", color=f_get_liquidity_color(liquidity_type), linewidth=2)
+
+if show_imbalance_signals
+    imbalance_normalized = (volume_imbalance - 1) * 100
+    plot(imbalance_normalized, "Volume Imbalance %", color=f_get_imbalance_color(imbalance_type), linewidth=2)
+
+// Вспомогательные графики
+plot(market_impact, "Market Impact %", color=color.orange, linewidth=1, display=display.data_window)
+plot(execution_time, "Execution Time (s)", color=color.purple, linewidth=1, display=display.data_window)
+
+// ============================================================================
+// ВИЗУАЛЬНЫЕ СИГНАЛЫ
+// ============================================================================
+
+// Сигналы дисбаланса
+strong_bid_signal = imbalance_type == "STRONG_BID" or imbalance_type == "EXTREME_BID"
+strong_ask_signal = imbalance_type == "STRONG_ASK" or imbalance_type == "EXTREME_ASK"
+
+if show_imbalance_signals
+    plotshape(strong_bid_signal, "Strong Bid", shape.triangleup, location.belowbar, color=color.green, size=size.small)
+    plotshape(strong_ask_signal, "Strong Ask", shape.triangledown, location.abovebar, color=color.red, size=size.small)
+
+// Торговые сигналы
+if show_trading_signals
+    bullish_signal = price_direction == "BULLISH" and liquidity_index > 30
+    bearish_signal = price_direction == "BEARISH" and liquidity_index > 30
+    
+    plotshape(bullish_signal, "Buy Signal", shape.labelup, location.belowbar, color=color.green, size=size.normal, text="BUY")
+    plotshape(bearish_signal, "Sell Signal", shape.labeldown, location.abovebar, color=color.red, size=size.normal, text="SELL")
+
+// ============================================================================
+// ИНФОРМАЦИОННАЯ ТАБЛИЦА
+// ============================================================================
+
+if barstate.islast
+    var table analysis_table = table.new(position.top_left, 2, 12, bgcolor=color.white, border_width=1)
+    
+    // Заголовок
+    table.cell(analysis_table, 0, 0, "Market Depth Analysis", text_color=color.black, text_size=size.normal, bgcolor=color.gray)
+    table.cell(analysis_table, 1, 0, "Status", text_color=color.black, text_size=size.normal, bgcolor=color.gray)
+    
+    // Основная информация
+    table.cell(analysis_table, 0, 1, "Depth Mode:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 1, depth_mode, text_color=color.blue, text_size=size.small)
+    
+    table.cell(analysis_table, 0, 2, "Liquidity Type:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 2, liquidity_type, text_color=f_get_liquidity_color(liquidity_type), text_size=size.small)
+    
+    table.cell(analysis_table, 0, 3, "Liquidity Index:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 3, str.format("{0,number,#.#}", liquidity_index), text_color=f_get_liquidity_color(liquidity_type), text_size=size.small)
+    
+    table.cell(analysis_table, 0, 4, "Imbalance Type:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 4, imbalance_type, text_color=f_get_imbalance_color(imbalance_type), text_size=size.small)
+    
+    table.cell(analysis_table, 0, 5, "Imbalance Ratio:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 5, str.format("{0,number,#.##}x", volume_imbalance), text_color=f_get_imbalance_color(imbalance_type), text_size=size.small)
+    
+    table.cell(analysis_table, 0, 6, "Price Direction:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 6, price_direction, text_color=color.blue, text_size=size.small)
+    
+    // Торговая информация
+    table.cell(analysis_table, 0, 7, "Optimal Ask:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 7, str.format("${0,number,#.####}", na(optimal_ask) ? ask_price : optimal_ask), text_color=color.red, text_size=size.small)
+    
+    table.cell(analysis_table, 0, 8, "Optimal Bid:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 8, str.format("${0,number,#.####}", na(optimal_bid) ? bid_price : optimal_bid), text_color=color.green, text_size=size.small)
+    
+    table.cell(analysis_table, 0, 9, "Market Impact:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 9, str.format("{0,number,#.##}%", market_impact), text_color=color.orange, text_size=size.small)
+    
+    table.cell(analysis_table, 0, 10, "Execution Time:", text_color=color.black, text_size=size.small)
+    table.cell(analysis_table, 1, 10, f_format_execution_time(execution_time), text_color=color.purple, text_size=size.small)
+    
+    // Статус
+    table.cell(analysis_table, 0, 11, "Trading Status:", text_color=color.black, text_size=size.small)
+    trading_status = liquidity_index < 20 ? "LOW LIQUIDITY" : 
+                     bullish_signal ? "BUY SIGNAL" : 
+                     bearish_signal ? "SELL SIGNAL" : "WAIT"
+    status_color = liquidity_index < 20 ? color.orange : 
+                   bullish_signal ? color.green : 
+                   bearish_signal ? color.red : color.gray
+    table.cell(analysis_table, 1, 11, trading_status, text_color=status_color, text_size=size.small)
+
+// ============================================================================
+// АЛЕРТЫ
+// ============================================================================
+
+// Алерты на торговые сигналы
+if bullish_signal
+    alert("BUY SIGNAL: Сильный дисбаланс в пользу покупки при хорошей ликвидности", alert.freq_once_per_bar)
+
+if bearish_signal
+    alert("SELL SIGNAL: Сильный дисбаланс в пользу продажи при хорошей ликвидности", alert.freq_once_per_bar)
+
+// Алерт на низкую ликвидность
+if liquidity_index < 20
+    alert("ВНИМАНИЕ: Очень низкая ликвидность! Осторожно с крупными сделками", alert.freq_once_per_bar)
+
+// Алерт на экстремальный дисбаланс
+if imbalance_type == "EXTREME_BID" or imbalance_type == "EXTREME_ASK"
+    alert("ЭКСТРЕМАЛЬНЫЙ ДИСБАЛАНС: " + imbalance_type, alert.freq_once_per_bar)
+
+// ============================================================================
+// ДОПОЛНИТЕЛЬНЫЕ ИНДИКАТОРЫ
+// ============================================================================
+
+// Волатильность стакана
+bid_volatility = f_calculate_depth_volatility(bid_volumes)
+ask_volatility = f_calculate_depth_volatility(ask_volumes)
+plot(bid_volatility, "Bid Depth Volatility", color=color.blue, display=display.data_window)
+plot(ask_volatility, "Ask Depth Volatility", color=color.red, display=display.data_window)
+
+// Корреляция bid/ask
+bid_ask_correlation = f_calculate_bid_ask_correlation(bid_volumes, ask_volumes)
+plot(bid_ask_correlation, "Bid/Ask Correlation", color=color.purple, display=display.data_window)
+
+// ============================================================================
+// НАСТРОЙКИ ОТОБРАЖЕНИЯ
+// ============================================================================
+
+// Горизонтальные линии
+hline(50, "Neutral Liquidity", color=color.gray, linestyle=hline.style_dashed)
+hline(0, "Perfect Balance", color=color.gray, linestyle=hline.style_dotted)
+
+// Фон
+bgcolor(liquidity_index < 20 ? color.new(color.orange, 95) : na, title="Low Liquidity Warning")
+bgcolor(bullish_signal ? color.new(color.green, 95) : bearish_signal ? color.new(color.red, 95) : na, title="Trading Signal")
