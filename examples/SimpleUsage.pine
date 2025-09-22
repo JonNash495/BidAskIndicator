@@ -1,0 +1,52 @@
+//@version=5
+indicator("Simple Bid Ask Example", shorttitle="BidAsk Simple", overlay=true)
+
+// ============================================================================
+// ПРОСТОЙ ПРИМЕР ИСПОЛЬЗОВАНИЯ BID/ASK ИНДИКАТОРА
+// ============================================================================
+
+// Подключение библиотеки утилит
+// include BidAskUtils.pine
+
+// Основные настройки
+show_lines = input.bool(true, "Показать линии Bid/Ask")
+show_spread = input.bool(true, "Показать спред")
+line_color = input.color(color.blue, "Цвет линий")
+
+// Получение уровня волатильности
+vol_level = f_get_volatility_level(20)
+
+// Расчет bid/ask цен
+bid_price = f_get_bid_price(close, vol_level)
+ask_price = f_get_ask_price(close, vol_level)
+
+// Сглаживание данных
+bid_smooth = f_smooth_bid(bid_price, 3)
+ask_smooth = f_smooth_ask(ask_price, 3)
+
+// Расчет спреда
+spread_percent = f_get_spread_percent(bid_smooth, ask_smooth, close)
+spread_ma = f_get_spread_ma(spread_percent, 20)
+
+// Отображение линий
+plot(show_lines ? bid_smooth : na, "Bid", color=color.blue, linewidth=2)
+plot(show_lines ? ask_smooth : na, "Ask", color=color.red, linewidth=2)
+
+// Отображение спреда
+plot(show_spread ? spread_percent : na, "Spread %", color=color.yellow, display=display.data_window)
+
+// Простая таблица с данными
+if barstate.islast
+    var table info_table = table.new(position.top_right, 2, 4, bgcolor=color.white, border_width=1)
+    
+    table.cell(info_table, 0, 0, "Vol Level:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 0, vol_level, text_color=color.orange, text_size=size.small)
+    
+    table.cell(info_table, 0, 1, "Bid:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 1, str.format("${0,number,#.####}", bid_smooth), text_color=color.blue, text_size=size.small)
+    
+    table.cell(info_table, 0, 2, "Ask:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 2, str.format("${0,number,#.####}", ask_smooth), text_color=color.red, text_size=size.small)
+    
+    table.cell(info_table, 0, 3, "Spread:", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 3, str.format("{0,number,#.##}%", spread_percent), text_color=color.yellow, text_size=size.small)

@@ -1,0 +1,60 @@
+{
+  "indicator_info": {
+    "name": "Bid Ask Spread Indicator",
+    "version": "1.0.0",
+    "description": "Индикатор для отображения и анализа bid/ask спреда на TradingView",
+    "author": "TradingView Developer",
+    "created": "2025-01-22",
+    "updated": "2025-01-22"
+  },
+  "default_settings": {
+    "main": {
+      "show_bid_line": true,
+      "show_ask_line": true,
+      "show_spread": true,
+      "show_spread_percent": true
+    },
+    "style": {
+      "bid_color": "#0000FF",
+      "ask_color": "#FF0000",
+      "line_width": 2,
+      "line_style": "Solid"
+    },
+    "spread": {
+      "spread_color": "#FFFF00",
+      "spread_size": "Normal",
+      "spread_position": "Top"
+    },
+    "alerts": {
+      "enable_spread_alert": false,
+      "spread_threshold": 0.1
+    },
+    "advanced": {
+      "show_spread_chart": true,
+      "show_spread_ma": true,
+      "ma_length": 20,
+      "enable_spike_alert": true,
+      "spike_threshold": 2.0
+    }
+  },
+  "supported_instruments": [
+    "Forex",
+    "Crypto",
+    "Stocks",
+    "Indices",
+    "Commodities"
+  ],
+  "features": [
+    "Real-time bid/ask visualization",
+    "Spread percentage calculation",
+    "Moving averages for spread analysis",
+    "Alert system for spread anomalies",
+    "Statistical analysis tools",
+    "Customizable visual settings",
+    "Multi-timeframe support"
+  ],
+  "requirements": {
+    "pine_version": "5",
+    "tradingview_version": "latest"
+  }
+}

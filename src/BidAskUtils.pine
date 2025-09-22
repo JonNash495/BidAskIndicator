@@ -1,0 +1,174 @@
+//@version=5
+// Библиотека утилит для работы с Bid/Ask данными
+// Этот файл содержит вспомогательные функции для индикаторов bid/ask
+
+// ============================================================================
+// КОНСТАНТЫ
+// ============================================================================
+
+// Стандартные множители для расчета bid/ask (в зависимости от волатильности)
+BID_MULTIPLIER_HIGH_VOL = 0.9990
+ASK_MULTIPLIER_HIGH_VOL = 1.0010
+BID_MULTIPLIER_NORMAL = 0.9995
+ASK_MULTIPLIER_NORMAL = 1.0005
+BID_MULTIPLIER_LOW_VOL = 0.9998
+ASK_MULTIPLIER_LOW_VOL = 1.0002
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ РАСЧЕТА BID/ASK
+// ============================================================================
+
+// Функция для определения уровня волатильности
+f_get_volatility_level(length = 20) =>
+    atr_value = ta.atr(length)
+    avg_atr = ta.sma(atr_value, length)
+    
+    if atr_value > avg_atr * 1.5
+        "HIGH"
+    else if atr_value < avg_atr * 0.5
+        "LOW"
+    else
+        "NORMAL"
+
+// Функция для получения bid цены
+f_get_bid_price(source_price, vol_level = "NORMAL") =>
+    switch vol_level
+        "HIGH" => source_price * BID_MULTIPLIER_HIGH_VOL
+        "LOW" => source_price * BID_MULTIPLIER_LOW_VOL
+        => source_price * BID_MULTIPLIER_NORMAL
+
+// Функция для получения ask цены
+f_get_ask_price(source_price, vol_level = "NORMAL") =>
+    switch vol_level
+        "HIGH" => source_price * ASK_MULTIPLIER_HIGH_VOL
+        "LOW" => source_price * ASK_MULTIPLIER_LOW_VOL
+        => source_price * ASK_MULTIPLIER_NORMAL
+
+// Функция для расчета спреда в абсолютных значениях
+f_get_spread_absolute(bid_price, ask_price) =>
+    ask_price - bid_price
+
+// Функция для расчета спреда в процентах
+f_get_spread_percent(bid_price, ask_price, base_price) =>
+    spread_abs = f_get_spread_absolute(bid_price, ask_price)
+    (spread_abs / base_price) * 100
+
+// Функция для расчета спреда в пипсах (для валютных пар)
+f_get_spread_pips(bid_price, ask_price, pip_size = 0.0001) =>
+    spread_abs = f_get_spread_absolute(bid_price, ask_price)
+    spread_abs / pip_size
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ СГЛАЖИВАНИЯ ДАННЫХ
+// ============================================================================
+
+// Функция для сглаживания bid цены
+f_smooth_bid(bid_price, length = 3) =>
+    ta.sma(bid_price, length)
+
+// Функция для сглаживания ask цены
+f_smooth_ask(ask_price, length = 3) =>
+    ta.sma(ask_price, length)
+
+// Функция для сглаживания спреда
+f_smooth_spread(spread_percent, length = 3) =>
+    ta.sma(spread_percent, length)
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ АНАЛИЗА СПРЕДА
+// ============================================================================
+
+// Функция для определения типа спреда
+f_get_spread_type(spread_percent, ma_spread, std_spread) =>
+    if spread_percent > ma_spread + 2 * std_spread
+        "WIDE"
+    else if spread_percent < ma_spread - 2 * std_spread
+        "TIGHT"
+    else
+        "NORMAL"
+
+// Функция для расчета скользящего среднего спреда
+f_get_spread_ma(spread_percent, length = 20) =>
+    ta.sma(spread_percent, length)
+
+// Функция для расчета стандартного отклонения спреда
+f_get_spread_std(spread_percent, length = 20) =>
+    ta.stdev(spread_percent, length)
+
+// Функция для определения аномальных значений спреда
+f_is_spread_anomaly(spread_percent, ma_spread, std_spread, threshold = 2.0) =>
+    math.abs(spread_percent - ma_spread) > threshold * std_spread
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ ВИЗУАЛИЗАЦИИ
+// ============================================================================
+
+// Функция для получения цвета в зависимости от уровня спреда
+f_get_spread_color(spread_percent, ma_spread, std_spread) =>
+    spread_type = f_get_spread_type(spread_percent, ma_spread, std_spread)
+    switch spread_type
+        "WIDE" => color.red
+        "TIGHT" => color.green
+        => color.yellow
+
+// Функция для получения размера текста
+f_get_text_size(size_type = "NORMAL") =>
+    switch size_type
+        "SMALL" => size.small
+        "LARGE" => size.large
+        => size.normal
+
+// Функция для получения стиля линии
+f_get_line_style(style_type = "SOLID") =>
+    switch style_type
+        "DASHED" => line.style_dashed
+        "DOTTED" => line.style_dotted
+        => line.style_solid
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ АЛЕРТОВ
+// ============================================================================
+
+// Функция для проверки условий алерта
+f_check_spread_alert(spread_percent, threshold, alert_type = "ABOVE") =>
+    switch alert_type
+        "ABOVE" => spread_percent > threshold
+        "BELOW" => spread_percent < threshold
+        "EQUAL" => math.abs(spread_percent - threshold) < 0.01
+        => false
+
+// Функция для генерации текста алерта
+f_generate_alert_text(spread_percent, threshold, alert_type) =>
+    base_text = str.format("Spread: {0,number,#.##}%", spread_percent)
+    switch alert_type
+        "ABOVE" => base_text + " (выше порога " + str.format("{0,number,#.##}%", threshold) + ")"
+        "BELOW" => base_text + " (ниже порога " + str.format("{0,number,#.##}%", threshold) + ")"
+        "EQUAL" => base_text + " (равно порогу " + str.format("{0,number,#.##}%", threshold) + ")"
+        => base_text
+
+// ============================================================================
+// ФУНКЦИИ ДЛЯ СТАТИСТИКИ
+// ============================================================================
+
+// Функция для расчета статистики спреда за период
+f_get_spread_stats(spread_percent, length = 100) =>
+    var float sum_spread = 0.0
+    var int count = 0
+    var float max_spread = 0.0
+    var float min_spread = 999999.0
+    
+    if barstate.isconfirmed
+        sum_spread += spread_percent
+        count += 1
+        max_spread := math.max(max_spread, spread_percent)
+        min_spread := math.min(min_spread, spread_percent)
+    
+    avg_spread = count > 0 ? sum_spread / count : 0.0
+    
+    [avg_spread, max_spread, min_spread, count]
+
+// Функция для расчета коэффициента вариации спреда
+f_get_spread_cv(spread_percent, length = 20) =>
+    avg_spread = f_get_spread_ma(spread_percent, length)
+    std_spread = f_get_spread_std(spread_percent, length)
+    avg_spread > 0 ? (std_spread / avg_spread) * 100 : 0.0
